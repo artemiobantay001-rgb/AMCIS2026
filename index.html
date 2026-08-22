@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AMCIS Biometric Attendance Analyzer</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;background:#f4f7fb;color:#172033}.wrap{max-width:1100px;margin:auto;padding:28px}.hero{background:linear-gradient(135deg,#173b72,#2467b1);color:white;padding:28px;border-radius:18px;margin-bottom:22px}.hero h1{margin:0 0 8px;font-size:30px}.hero p{margin:0;opacity:.9}.panel{background:white;border-radius:16px;padding:22px;margin-bottom:20px;box-shadow:0 5px 18px #00000012}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px}.field label{display:block;font-weight:700;margin-bottom:6px}.field input,.field select,button{width:100%;padding:11px;border:1px solid #ccd5e2;border-radius:9px;font-size:15px}.drop{border:2px dashed #8da7c7;text-align:center;padding:26px;border-radius:12px;background:#f8fbff}.drop input{margin-top:12px}.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}.actions button{width:auto;min-width:150px;cursor:pointer;border:0;background:#1769aa;color:white;font-weight:700}.actions .secondary{background:#e8eef6;color:#173b72}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.stat{padding:18px;border-radius:12px;background:#f5f8fc}.stat b{display:block;font-size:27px;margin-top:5px}.columns{display:grid;grid-template-columns:1fr 1fr;gap:18px}.card h2{margin-top:0}.card{background:#fff;border:1px solid #e1e7ef;border-radius:14px;padding:18px}.card.late{border-top:5px solid #d64545}.card.early{border-top:5px solid #26965b}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:9px;border-bottom:1px solid #e8edf3;font-size:14px}th{background:#f5f7fa}.msg{margin-top:12px;font-weight:600}.small{font-size:12px;color:#637083}.hidden{display:none}@media(max-width:700px){.columns,.stats{grid-template-columns:1fr}.wrap{padding:14px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="hero"><h1>AMCIS Biometric Attendance Analyzer</h1><p>Upload a biometric attendance export and automatically identify the latest late comers and earliest early birds.</p></div>
+<div class="panel">
+<div class="grid">
+<div class="field"><label>Biometric File</label><div class="drop">CSV or Excel (.xlsx/.xls)<br><input id="file" type="file" accept=".csv,.xlsx,.xls"></div></div>
+<div class="field"><label>Attendance Date</label><input id="date" type="date"></div>
+<div class="field"><label>Number of Late Comers</label><input id="lateN" type="number" min="1" value="10"></div>
+<div class="field"><label>Number of Early Birds</label><input id="earlyN" type="number" min="1" value="10"></div>
+</div>
+<div class="grid" style="margin-top:14px">
+<div class="field"><label>Name Column</label><select id="nameCol"><option value="auto">Auto-detect</option></select></div>
+<div class="field"><label>Date Column</label><select id="dateCol"><option value="auto">Auto-detect</option></select></div>
+<div class="field"><label>Time Column</label><select id="timeCol"><option value="auto">Auto-detect</option></select></div>
+</div>
+<div class="actions"><button onclick="analyze()">Analyze Attendance</button><button class="secondary" onclick="downloadCSV()">Download Results</button><button class="secondary" onclick="window.print()">Print Report</button></div>
+<div id="msg" class="msg"></div>
+<p class="small">Privacy: processing happens in this browser. The uploaded biometric file is not sent to this website's server. Use only attendance data you are authorized to process.</p>
+</div>
+<div id="results" class="hidden">
+<div class="stats"><div class="stat">Records analyzed<b id="records">0</b></div><div class="stat">Unique learners/staff<b id="people">0</b></div><div class="stat">Selected date<b id="selectedDate">—</b></div></div>
+<div class="columns" style="margin-top:18px">
+<div class="card late"><h2>🔴 Late Comers</h2><p class="small">Latest recorded arrival times, ranked from latest to earliest.</p><div id="lateTable"></div></div>
+<div class="card early"><h2>🟢 Early Birds</h2><p class="small">Earliest recorded arrival times, ranked from earliest to latest.</p><div id="earlyTable"></div></div>
+</div></div>
+</div>
+<script>
+let rows=[];let results={late:[],early:[]};
+const aliases={name:['name','employee name','student name','person','employee','student','fullname','full name','user name','username'],date:['date','attendance date','work date','day'],time:['time','attendance time','check in','check-in','in time','punch time','datetime','date time','timestamp']};
+function norm(s){return String(s??'').trim().toLowerCase().replace(/[_-]+/g,' ').replace(/\s+/g,' ')}
+function autoCol(headers,kind){let a=aliases[kind];return headers.find(h=>a.some(x=>norm(h)===x||norm(h).includes(x)))||headers[0]}
+function parseDate(v){if(v instanceof Date)return v.toISOString().slice(0,10);let s=String(v??'').trim();if(!s)return '';let d=new Date(s);if(!isNaN(d))return d.toISOString().slice(0,10);let m=s.match(/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})/);if(m)return `${m[3]}-${String(m[1]).padStart(2,'0')}-${String(m[2]).padStart(2,'0')}`;return ''}
+function parseTime(v){if(v instanceof Date)return `${String(v.getHours()).padStart(2,'0')}:${String(v.getMinutes()).padStart(2,'0')}:${String(v.getSeconds()).padStart(2,'0')}`;let s=String(v??'').trim();if(!s)return '';let m=s.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([AP]M)?/i);if(!m)return '';let h=+m[1],mi=+m[2],se=+(m[3]||0);if(m[4]){if(m[4].toUpperCase()==='PM'&&h<12)h+=12;if(m[4].toUpperCase()==='AM'&&h===12)h=0}return `${String(h).padStart(2,'0')}:${String(mi).padStart(2,'0')}:${String(se).padStart(2,'0')}`}
+function timeSec(t){let p=t.split(':').map(Number);return p[0]*3600+p[1]*60+(p[2]||0)}
+function fillCols(headers){['nameCol','dateCol','timeCol'].forEach(id=>{let sel=document.getElementById(id);sel.innerHTML='<option value="auto">Auto-detect</option>';headers.forEach(h=>{let o=document.createElement('option');o.value=h;o.textContent=h;sel.appendChild(o)})})}
+function processWorkbook(data){let wb=XLSX.read(data,{type:'array',cellDates:true});let sheet=wb.Sheets[wb.SheetNames[0]];rows=XLSX.utils.sheet_to_json(sheet,{defval:''});if(!rows.length){setMsg('No records found.','error');return}fillCols(Object.keys(rows[0]));setMsg(`${rows.length} records loaded. Select the date and click Analyze Attendance.`);}
+document.getElementById('file').addEventListener('change',e=>{let f=e.target.files[0];if(!f)return;let r=new FileReader();r.onload=x=>processWorkbook(x.target.result);r.readAsArrayBuffer(f)});
+function col(id,headers,kind){let v=document.getElementById(id).value;return v==='auto'?autoCol(headers,kind):v}
+function analyze(){if(!rows.length){setMsg('Please upload a biometric CSV or Excel file first.','error');return}let headers=Object.keys(rows[0]);let nc=col('nameCol',headers,'name'),dc=col('dateCol',headers,'date'),tc=col('timeCol',headers,'time');let target=document.getElementById('date').value;let parsed=rows.map(r=>({name:String(r[nc]??'').trim(),date:parseDate(r[dc]),time:parseTime(r[tc])})).filter(x=>x.name&&x.time);if(!target){let dates=[...new Set(parsed.map(x=>x.date).filter(Boolean))].sort();target=dates[dates.length-1]||'';document.getElementById('date').value=target}let day=parsed.filter(x=>!target||x.date===target);let byPerson=new Map();day.forEach(x=>{let old=byPerson.get(x.name);if(!old||timeSec(x.time)<timeSec(old.time))byPerson.set(x.name,x)});let people=[...byPerson.values()];let lateN=Math.max(1,+document.getElementById('lateN').value||10),earlyN=Math.max(1,+document.getElementById('earlyN').value||10);results.early=people.slice().sort((a,b)=>timeSec(a.time)-timeSec(b.time)).slice(0,earlyN);results.late=people.slice().sort((a,b)=>timeSec(b.time)-timeSec(a.time)).slice(0,lateN);document.getElementById('records').textContent=day.length;document.getElementById('people').textContent=people.length;document.getElementById('selectedDate').textContent=target||'All dates';render('earlyTable',results.early);render('lateTable',results.late);document.getElementById('results').classList.remove('hidden');setMsg('Analysis complete.');}
+function render(id,list){let html='<table><thead><tr><th>Rank</th><th>Name</th><th>Arrival</th></tr></thead><tbody>';list.forEach((x,i)=>html+=`<tr><td>${i+1}</td><td>${escapeHtml(x.name)}</td><td>${x.time}</td></tr>`);html+='</tbody></table>';document.getElementById(id).innerHTML=html}
+function escapeHtml(s){return s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function downloadCSV(){if(!results.late.length&&!results.early.length){setMsg('Analyze the attendance first.','error');return}let lines=['Category,Rank,Name,Arrival Time'];results.late.forEach((x,i)=>lines.push(`Late Comer,${i+1},"${x.name.replace(/"/g,'""')}",${x.time}`));results.early.forEach((x,i)=>lines.push(`Early Bird,${i+1},"${x.name.replace(/"/g,'""')}",${x.time}`));let blob=new Blob([lines.join('\n')],{type:'text/csv;charset=utf-8'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='AMCIS_Attendance_Results.csv';a.click();URL.revokeObjectURL(a.href)}
+function setMsg(s,kind){let e=document.getElementById('msg');e.textContent=s;e.style.color=kind==='error'?'#b42318':'#17633a'}
+</script></body></html>
